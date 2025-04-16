@@ -7,11 +7,9 @@ from tkinter import ttk
 from tkinter import messagebox
 from time import time
 
-# Configura pyautogui para baixa latência
 pyautogui.MINIMUM_DURATION = 0
 pyautogui.MINIMUM_SLEEP = 0
 
-# Estado das teclas/botões
 estado = {
     'w': False,
     'a': False,
@@ -24,54 +22,63 @@ estado = {
     'right': False
 }
 
-# Rastreia botões pressionados
-botoes_pressionados = {}  # {gpio: timestamp}
+botoes_pressionados = {}
 
 def atualizar_tecla(tecla, ativo):
-    """Pressiona ou solta uma tecla/clique."""
-    if ativo and not estado[tecla]:
-        pyautogui.keyDown(tecla)
-        estado[tecla] = True
-    elif not ativo and estado[tecla]:
-        pyautogui.keyUp(tecla)
-        estado[tecla] = False
+    if tecla in ['left', 'right']:
+        button = tecla
+        if ativo and not estado[tecla]:
+            pyautogui.mouseDown(button=button)
+            estado[tecla] = True
+        elif not ativo and estado[tecla]:
+            pyautogui.mouseUp(button=button)
+            estado[tecla] = False
+    else:
+        if ativo and not estado[tecla]:
+            pyautogui.keyDown(tecla)
+            estado[tecla] = True
+        elif not ativo and estado[tecla]:
+            pyautogui.keyUp(tecla)
+            estado[tecla] = False
 
 def scroll_down():
-    """Simula scroll down."""
     pyautogui.scroll(-1)
 
 def parse_data(data):
-    """Interpreta os dados recebidos: [tipo, id, valor_low, valor_high]."""
     tipo = data[0]
     id = data[1]
     valor = int.from_bytes(data[2:4], byteorder='little', signed=True)
     return tipo, id, valor
 
 def controle(ser, status_label):
-    """Lê eventos seriais e processa joysticks/botões."""
     global botoes_pressionados
     botoes = {
-        15: 'left',      # BTN_LM
-        14: 'right',     # BTN_RM
-        13: None,        # BTN_SCROLL
-        12: 'e',         # BTN_INVENTORY
-        11: 'space',     # BTN_JUMP
-        10: 'shift'      # BTN_RUN
+        15: 'left',
+        14: 'right',
+        13: None,
+        12: 'e',
+        11: 'space',
+        10: 'shift'
     }
 
     while True:
-        # Aguarda byte de sincronização
         sync_byte = ser.read(size=1)
         if not sync_byte or sync_byte[0] != 0xFF:
             continue
-        # Lê 4 bytes: [tipo, id, valor_low, valor_high]
         data = ser.read(size=4)
         if len(data) < 4:
             continue
         tipo, id, valor = parse_data(data)
         status_label.config(text=f"Evento: tipo={tipo}, id={id}, valor={valor}")
 
-        # Processa evento
+        # Debug: Loga eventos
+        if tipo == 0:
+            print(f"Joystick 1: eixo={id}, valor={valor}")
+        elif tipo == 1:
+            print(f"Joystick 2: eixo={id}, valor={valor}")
+        elif tipo == 2:
+            print(f"Botao: valor={valor}, acao={'pressionar' if valor in botoes else 'soltar'}")
+
         if tipo == 0:  # Joystick 1 (WASD)
             if id == 0:  # X
                 atualizar_tecla('a', valor < -10)
@@ -81,32 +88,30 @@ def controle(ser, status_label):
                 atualizar_tecla('s', valor > 10)
         elif tipo == 1:  # Joystick 2 (mouse)
             if id == 0:  # X
-                pyautogui.moveRel(valor, 0)
+                pyautogui.moveRel(valor // 4, 0)  # Reduz sensibilidade
             elif id == 1:  # Y
-                pyautogui.moveRel(0, valor)
+                pyautogui.moveRel(0, valor // 4)
         elif tipo == 2:  # Botões
-            if valor in botoes:  # Pressionado
+            if valor in botoes:
                 botoes_pressionados[valor] = time()
                 if valor == 13:
                     scroll_down()
                 elif botoes[valor]:
                     atualizar_tecla(botoes[valor], True)
-            elif valor == 0 and botoes_pressionados:  # Solto
+            elif valor == 0 and botoes_pressionados:
                 for gpio in list(botoes_pressionados):
                     if botoes[gpio]:
                         atualizar_tecla(botoes[gpio], False)
                     del botoes_pressionados[gpio]
 
-        # Timeout pra soltar botões
         now = time()
         for gpio in list(botoes_pressionados):
-            if now - botoes_pressionados[gpio] > 0.5:  # 500ms
+            if now - botoes_pressionados[gpio] > 0.5:
                 if gpio in botoes and botoes[gpio]:
                     atualizar_tecla(botoes[gpio], False)
                 del botoes_pressionados[gpio]
 
 def serial_ports():
-    """Retorna lista de portas seriais disponíveis."""
     ports = []
     if sys.platform.startswith('win'):
         for i in range(1, 256):
@@ -135,7 +140,6 @@ def serial_ports():
     return result
 
 def conectar_porta(port_name, root, botao_conectar, status_label, mudar_cor_circulo):
-    """Abre conexão serial e inicia leitura."""
     if not port_name:
         messagebox.showwarning("Aviso", "Selecione uma porta serial antes de conectar.")
         return
@@ -146,10 +150,7 @@ def conectar_porta(port_name, root, botao_conectar, status_label, mudar_cor_circ
         mudar_cor_circulo("green")
         botao_conectar.config(text="Conectado")
         root.update()
-
-        # Inicia leitura
         controle(ser, status_label)
-
     except Exception as e:
         messagebox.showerror("Erro", f"Não foi possível conectar em {port_name}.\nErro: {e}")
         mudar_cor_circulo("red")
@@ -164,7 +165,6 @@ def criar_janela():
     root.geometry("400x250")
     root.resizable(False, False)
 
-    # Tema escuro
     dark_bg = "#2e2e2e"
     dark_fg = "#ffffff"
     accent_color = "#007acc"
@@ -183,7 +183,6 @@ def criar_janela():
     style.configure("TCombobox", fieldbackground=dark_bg, background=dark_bg, foreground=dark_fg, padding=4)
     style.map("TCombobox", fieldbackground=[("readonly", dark_bg)])
 
-    # Frame principal
     frame_principal = ttk.Frame(root, padding="20")
     frame_principal.pack(expand=True, fill="both")
 
@@ -200,7 +199,6 @@ def criar_janela():
     )
     botao_conectar.pack(pady=10)
 
-    # Frame inferior
     footer_frame = tk.Frame(root, bg=dark_bg)
     footer_frame.pack(side="bottom", fill="x", padx=10, pady=(10, 0))
 
