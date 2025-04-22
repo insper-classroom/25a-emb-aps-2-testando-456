@@ -5,7 +5,7 @@ import pyautogui
 import tkinter as tk
 from tkinter import ttk
 from tkinter import messagebox
-from time import time
+from time import time, sleep
 
 pyautogui.MINIMUM_DURATION = 0
 pyautogui.MINIMUM_SLEEP = 0
@@ -14,35 +14,59 @@ estado = {
     'w': False,
     'a': False,
     's': False,
-    'd': False,
-    'e': False,
-    'space': False,
-    'shift': False,
-    'left': False,
-    'right': False
+    'd': False
 }
 
 botoes_pressionados = {}
+gravando = False
+reproduzindo = False
+macro = []
+inicio_gravacao = 0
 
 def atualizar_tecla(tecla, ativo):
-    if tecla in ['left', 'right']:
-        button = tecla
-        if ativo and not estado[tecla]:
-            pyautogui.mouseDown(button=button)
-            estado[tecla] = True
-        elif not ativo and estado[tecla]:
-            pyautogui.mouseUp(button=button)
-            estado[tecla] = False
-    else:
-        if ativo and not estado[tecla]:
-            pyautogui.keyDown(tecla)
-            estado[tecla] = True
-        elif not ativo and estado[tecla]:
-            pyautogui.keyUp(tecla)
-            estado[tecla] = False
+    if ativo and not estado[tecla]:
+        pyautogui.keyDown(tecla)
+        estado[tecla] = True
+    elif not ativo and estado[tecla]:
+        pyautogui.keyUp(tecla)
+        estado[tecla] = False
 
-def scroll_down():
-    pyautogui.scroll(-1)
+def reproduzir_macro(status_label, mudar_cor_circulo):
+    global reproduzindo
+    if not macro:
+        return
+    reproduzindo = True
+    status_label.config(text="Reproduzindo macro...")
+    mudar_cor_circulo("blue")
+    
+    start_time = time()
+    for evento in macro:
+        tempo, tipo, id, valor = evento
+        # Aguarda até o momento correto
+        while time() - start_time < tempo:
+            sleep(0.01)
+        # Executa ação
+        if tipo == 1:  # Joystick (mouse)
+            if id == 0:
+                pyautogui.moveRel(valor // 4, 0)
+            elif id == 1:
+                pyautogui.moveRel(0, valor // 4)
+        elif tipo == 2:  # Botões (WASD)
+            botoes = {14: 'w', 15: 'a', 20: 's', 21: 'd'}
+            if valor in botoes:
+                atualizar_tecla(botoes[valor], True)
+            elif valor == 0:
+                for tecla in estado:
+                    if estado[tecla]:
+                        atualizar_tecla(tecla, False)
+    
+    # Limpa teclas ativas e volta ao modo normal
+    for tecla in estado:
+        if estado[tecla]:
+            atualizar_tecla(tecla, False)
+    reproduzindo = False
+    status_label.config(text="Conectado.")
+    mudar_cor_circulo("green")
 
 def parse_data(data):
     tipo = data[0]
@@ -50,66 +74,86 @@ def parse_data(data):
     valor = int.from_bytes(data[2:4], byteorder='little', signed=True)
     return tipo, id, valor
 
-def controle(ser, status_label):
-    global botoes_pressionados
+def controle(ser, status_label, mudar_cor_circulo):
+    global botoes_pressionados, gravando, reproduzindo, macro, inicio_gravacao
     botoes = {
-        15: 'left',
-        14: 'right',
-        13: None,
-        12: 'e',
-        11: 'space',
-        10: 'shift'
+        14: 'w',  # GP14
+        15: 'a',  # GP15
+        20: 's',  # GP20
+        21: 'd',  # GP21
+        22: None  # GP22 (macro)
     }
 
     while True:
-        sync_byte = ser.read(size=1)
-        if not sync_byte or sync_byte[0] != 0xFF:
-            continue
-        data = ser.read(size=4)
-        if len(data) < 4:
-            continue
-        tipo, id, valor = parse_data(data)
-        status_label.config(text=f"Evento: tipo={tipo}, id={id}, valor={valor}")
+        try:
+            sync_byte = ser.read(size=1)
+            if not sync_byte or sync_byte[0] != 0xFF:
+                continue
+            data = ser.read(size=4)
+            if len(data) < 4:
+                continue
+            tipo, id, valor = parse_data(data)
+            status_label.config(text=f"Evento: tipo={tipo}, id={id}, valor={valor}")
 
-        # Debug: Loga eventos
-        if tipo == 0:
-            print(f"Joystick 1: eixo={id}, valor={valor}")
-        elif tipo == 1:
-            print(f"Joystick 2: eixo={id}, valor={valor}")
-        elif tipo == 2:
-            print(f"Botao: valor={valor}, acao={'pressionar' if valor in botoes else 'soltar'}")
+            # Debug
+            if tipo == 1:
+                print(f"Joystick: eixo={id}, valor={valor}")
+            elif tipo == 2:
+                print(f"Botao: valor={valor}, acao={'pressionar' if valor in botoes else 'soltar'}")
 
-        if tipo == 0:  # Joystick 1 (WASD)
-            if id == 0:  # X
-                atualizar_tecla('a', valor < -10)
-                atualizar_tecla('d', valor > 10)
-            elif id == 1:  # Y
-                atualizar_tecla('w', valor < -10)
-                atualizar_tecla('s', valor > 10)
-        elif tipo == 1:  # Joystick 2 (mouse)
-            if id == 0:  # X
-                pyautogui.moveRel(valor // 4, 0)  # Reduz sensibilidade
-            elif id == 1:  # Y
-                pyautogui.moveRel(0, valor // 4)
-        elif tipo == 2:  # Botões
-            if valor in botoes:
-                botoes_pressionados[valor] = time()
-                if valor == 13:
-                    scroll_down()
-                elif botoes[valor]:
-                    atualizar_tecla(botoes[valor], True)
-            elif valor == 0 and botoes_pressionados:
-                for gpio in list(botoes_pressionados):
-                    if botoes[gpio]:
+            # Gravação
+            if gravando and tipo in [1, 2] and valor != 22:  # Exclui botão macro
+                tempo = time() - inicio_gravacao
+                macro.append([tempo, tipo, id, valor])
+
+            # Ignora eventos durante reprodução
+            if reproduzindo:
+                continue
+
+            if tipo == 1:  # Joystick (mouse)
+                if id == 0:  # X
+                    pyautogui.moveRel(valor // 4, 0)
+                elif id == 1:  # Y
+                    pyautogui.moveRel(0, valor // 4)
+            elif tipo == 2:  # Botões
+                if valor == 22:  # Botão macro
+                    if not botoes_pressionados.get(22):  # Pressionar
+                        botoes_pressionados[22] = time()
+                        if gravando:
+                            # Para gravação e inicia reprodução
+                            gravando = False
+                            reproduzir_macro(status_label, mudar_cor_circulo)
+                        else:
+                            # Inicia gravação
+                            gravando = True
+                            macro = []
+                            inicio_gravacao = time()
+                            status_label.config(text="Gravando macro...")
+                            mudar_cor_circulo("orange")
+                elif valor in botoes:
+                    botoes_pressionados[valor] = time()
+                    if botoes[valor]:
+                        atualizar_tecla(botoes[valor], True)
+                elif valor == 0 and botoes_pressionados:
+                    for gpio in list(botoes_pressionados):
+                        if botoes.get(gpio) and gpio != 22:
+                            atualizar_tecla(botoes[gpio], False)
+                        if gpio != 22:  # Mantém 22 até timeout
+                            del botoes_pressionados[gpio]
+
+            # Timeout para botões
+            now = time()
+            for gpio in list(botoes_pressionados):
+                if now - botoes_pressionados[gpio] > 0.5:
+                    if gpio in botoes and botoes[gpio]:
                         atualizar_tecla(botoes[gpio], False)
                     del botoes_pressionados[gpio]
 
-        now = time()
-        for gpio in list(botoes_pressionados):
-            if now - botoes_pressionados[gpio] > 0.5:
-                if gpio in botoes and botoes[gpio]:
-                    atualizar_tecla(botoes[gpio], False)
-                del botoes_pressionados[gpio]
+        except KeyboardInterrupt:
+            break
+        except Exception as e:
+            print(f"Erro no controle: {e}")
+            break
 
 def serial_ports():
     ports = []
@@ -146,17 +190,17 @@ def conectar_porta(port_name, root, botao_conectar, status_label, mudar_cor_circ
 
     try:
         ser = serial.Serial(port_name, 115200, timeout=1)
-        status_label.config(text=f"Conectado em {port_name}", foreground="green")
+        status_label.config(text=f"Conectado em {port_name}")
         mudar_cor_circulo("green")
         botao_conectar.config(text="Conectado")
         root.update()
-        controle(ser, status_label)
+        controle(ser, status_label, mudar_cor_circulo)
     except Exception as e:
         messagebox.showerror("Erro", f"Não foi possível conectar em {port_name}.\nErro: {e}")
         mudar_cor_circulo("red")
     finally:
         ser.close()
-        status_label.config(text="Conexão encerrada.", foreground="red")
+        status_label.config(text="Conexão encerrada.")
         mudar_cor_circulo("red")
 
 def criar_janela():
