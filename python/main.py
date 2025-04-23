@@ -9,7 +9,7 @@ from time import time, sleep
 
 pyautogui.MINIMUM_DURATION = 0
 pyautogui.MINIMUM_SLEEP = 0
-
+pyautogui.PAUSE = 0
 estado = {
     'w': False,
     'a': False,
