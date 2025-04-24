@@ -12,7 +12,7 @@ const int BTN_A = 15;     // Tecla 'a' (esquerda)
 const int BTN_S = 20;     // Tecla 's' (trás)
 const int BTN_D = 21;     // Tecla 'd' (direita)
 const int BTN_MACRO = 22; // Botão para reproduzir macro
-
+const int LED = 16;
 const int JOY_X = 26;     // Joystick X (ADC0, mouse)
 const int JOY_Y = 27;     // Joystick Y (ADC1, mouse)
 
