@@ -23,6 +23,7 @@ gravando = False
 reproduzindo = False
 macro = []
 inicio_gravacao = 0
+c_ativo = False  # Flag global para envio periódico de 'c'
 
 def atualizar_tecla(tecla, ativo):
     if ativo and not estado[tecla]:
@@ -43,10 +44,8 @@ def reproduzir_macro(status_label, mudar_cor_circulo):
     start_time = time()
     for evento in macro:
         tempo, tipo, id, valor = evento
-        # Aguarda até o momento correto
         while time() - start_time < tempo:
             sleep(0.01)
-        # Executa ação
         if tipo == 1:  # Joystick (mouse)
             if id == 0:
                 pyautogui.moveRel(valor // 4, 0)
@@ -61,7 +60,6 @@ def reproduzir_macro(status_label, mudar_cor_circulo):
                     if estado[tecla]:
                         atualizar_tecla(tecla, False)
     
-    # Limpa teclas ativas e volta ao modo normal
     for tecla in estado:
         if estado[tecla]:
             atualizar_tecla(tecla, False)
@@ -96,36 +94,31 @@ def controle(ser, status_label, mudar_cor_circulo):
             tipo, id, valor = parse_data(data)
             status_label.config(text=f"Evento: tipo={tipo}, id={id}, valor={valor}")
 
-            # Debug
             if tipo == 1:
                 print(f"Joystick: eixo={id}, valor={valor}")
             elif tipo == 2:
                 print(f"Botao: valor={valor}, acao={'pressionar' if valor in botoes else 'soltar'}")
 
-            # Gravação
-            if gravando and tipo in [1, 2] and valor != 22:  # Exclui botão macro
+            if gravando and tipo in [1, 2] and valor != 22:
                 tempo = time() - inicio_gravacao
                 macro.append([tempo, tipo, id, valor])
 
-            # Ignora eventos durante reprodução
             if reproduzindo:
                 continue
 
-            if tipo == 1:  # Joystick (mouse)
-                if id == 0:  # X
+            if tipo == 1:
+                if id == 0:
                     pyautogui.moveRel(valor // 4, 0)
-                elif id == 1:  # Y
+                elif id == 1:
                     pyautogui.moveRel(0, valor // 4)
-            elif tipo == 2:  # Botões
-                if valor == 22:  # Botão macro
-                    if not botoes_pressionados.get(22):  # Pressionar
+            elif tipo == 2:
+                if valor == 22:
+                    if not botoes_pressionados.get(22):
                         botoes_pressionados[22] = time()
                         if gravando:
-                            # Para gravação e inicia reprodução
                             gravando = False
                             reproduzir_macro(status_label, mudar_cor_circulo)
                         else:
-                            # Inicia gravação
                             gravando = True
                             macro = []
                             inicio_gravacao = time()
@@ -139,10 +132,9 @@ def controle(ser, status_label, mudar_cor_circulo):
                     for gpio in list(botoes_pressionados):
                         if botoes.get(gpio) and gpio != 22:
                             atualizar_tecla(botoes[gpio], False)
-                        if gpio != 22:  # Mantém 22 até timeout
+                        if gpio != 22:
                             del botoes_pressionados[gpio]
 
-            # Timeout para botões
             now = time()
             for gpio in list(botoes_pressionados):
                 if now - botoes_pressionados[gpio] > 0.5:
@@ -184,14 +176,35 @@ def serial_ports():
             pass
     return result
 
+def enviar_c_periodico(ser, root):
+    global c_ativo
+    if not c_ativo:
+        return
+    try:
+        if ser.is_open:
+            ser.write(b'c')  # Envia 'c' para manter LED aceso
+            print("Enviado 'c'")  # Log para depuração
+        else:
+            c_ativo = False
+            return
+    except Exception as e:
+        print(f"Erro ao enviar 'c': {e}")
+        c_ativo = False
+        return
+    root.after(1000, lambda: enviar_c_periodico(ser, root))  # Agenda próximo envio em 1s
+
 def conectar_porta(port_name, root, botao_conectar, status_label, mudar_cor_circulo):
+    global c_ativo
     if not port_name:
         messagebox.showwarning("Aviso", "Selecione uma porta serial antes de conectar.")
         return
 
     try:
         ser = serial.Serial(port_name, 115200, timeout=1)
-        ser.write(b'c')  # Envia 'c' para acender LED
+        ser.write(b'c')  # Envia 'c' inicial para acender LED
+        print("Enviado 'c' inicial")  # Log para depuração
+        c_ativo = True  # Ativa envio periódico
+        root.after(1000, lambda: enviar_c_periodico(ser, root))  # Inicia envio periódico
         status_label.config(text=f"Conectado em {port_name}")
         mudar_cor_circulo("green")
         botao_conectar.config(text="Conectado")
@@ -201,8 +214,11 @@ def conectar_porta(port_name, root, botao_conectar, status_label, mudar_cor_circ
         messagebox.showerror("Erro", f"Não foi possível conectar em {port_name}.\nErro: {e}")
         mudar_cor_circulo("red")
     finally:
+        c_ativo = False  # Para envio periódico
         try:
-            ser.write(b'd')  # Envia 'd' para apagar LED
+            if ser.is_open:
+                ser.write(b'd')  # Envia 'd' para apagar LED
+                print("Enviado 'd'")  # Log para depuração
         except:
             pass
         ser.close()

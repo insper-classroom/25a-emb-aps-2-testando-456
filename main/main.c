@@ -120,8 +120,8 @@ void uart_task(void *p) {
 }
 
 void led_task(void *p) {
-    uint32_t last_activity = xTaskGetTickCount();
-    const TickType_t timeout_ticks = pdMS_TO_TICKS(1000); // 1 segundo em ticks
+    uint32_t last_c_received = xTaskGetTickCount();
+    const TickType_t timeout_ticks = pdMS_TO_TICKS(3000); // 3 segundos sem 'c'
 
     // Limpa buffer UART
     while (uart_is_readable(uart0)) {
@@ -133,28 +133,14 @@ void led_task(void *p) {
         if (data != PICO_ERROR_TIMEOUT) {
             if (data == 'c') { // 0x63
                 gpio_put(LED, 1); // Acende LED
-                last_activity = xTaskGetTickCount();
+                last_c_received = xTaskGetTickCount();
             } else if (data == 'd') { // 0x64
                 gpio_put(LED, 0); // Apaga LED
-                last_activity = xTaskGetTickCount();
-            } else if (data == 0xFF) { // Início de pacote de evento
-                // Aguarda os 4 bytes do pacote com timeout total de 100ms
-                bool packet_complete = true;
-                for (int i = 0; i < 4; i++) {
-                    int byte = getchar_timeout_us(25000); // 25ms por byte
-                    if (byte == PICO_ERROR_TIMEOUT) {
-                        packet_complete = false;
-                        break;
-                    }
-                }
-                if (packet_complete) {
-                    last_activity = xTaskGetTickCount();
-                }
             }
         }
 
-        // Apaga LED após 1s de inatividade
-        if (xTaskGetTickCount() - last_activity >= timeout_ticks) {
+        // Apaga LED após 3s sem 'c'
+        if (xTaskGetTickCount() - last_c_received >= timeout_ticks) {
             gpio_put(LED, 0);
         }
 
