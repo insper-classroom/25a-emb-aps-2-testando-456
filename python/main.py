@@ -10,6 +10,7 @@ from time import time, sleep
 pyautogui.MINIMUM_DURATION = 0
 pyautogui.MINIMUM_SLEEP = 0
 pyautogui.PAUSE = 0
+
 estado = {
     'w': False,
     'a': False,
@@ -190,6 +191,7 @@ def conectar_porta(port_name, root, botao_conectar, status_label, mudar_cor_circ
 
     try:
         ser = serial.Serial(port_name, 115200, timeout=1)
+        ser.write(b'c')  # Envia 'c' para acender LED
         status_label.config(text=f"Conectado em {port_name}")
         mudar_cor_circulo("green")
         botao_conectar.config(text="Conectado")
@@ -199,6 +201,10 @@ def conectar_porta(port_name, root, botao_conectar, status_label, mudar_cor_circ
         messagebox.showerror("Erro", f"Não foi possível conectar em {port_name}.\nErro: {e}")
         mudar_cor_circulo("red")
     finally:
+        try:
+            ser.write(b'd')  # Envia 'd' para apagar LED
+        except:
+            pass
         ser.close()
         status_label.config(text="Conexão encerrada.")
         mudar_cor_circulo("red")

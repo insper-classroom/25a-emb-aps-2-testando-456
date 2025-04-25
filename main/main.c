@@ -12,7 +12,7 @@ const int BTN_A = 15;     // Tecla 'a' (esquerda)
 const int BTN_S = 20;     // Tecla 's' (trás)
 const int BTN_D = 21;     // Tecla 'd' (direita)
 const int BTN_MACRO = 22; // Botão para reproduzir macro
-const int LED = 16;
+const int LED = 16;       // LED
 const int JOY_X = 26;     // Joystick X (ADC0, mouse)
 const int JOY_Y = 27;     // Joystick Y (ADC1, mouse)
 
@@ -119,10 +119,57 @@ void uart_task(void *p) {
     }
 }
 
+void led_task(void *p) {
+    uint32_t last_activity = xTaskGetTickCount();
+    const TickType_t timeout_ticks = pdMS_TO_TICKS(1000); // 1 segundo em ticks
+
+    // Limpa buffer UART
+    while (uart_is_readable(uart0)) {
+        uart_getc(uart0);
+    }
+
+    while (1) {
+        int data = getchar_timeout_us(50000); // Aguarda 50ms
+        if (data != PICO_ERROR_TIMEOUT) {
+            if (data == 'c') { // 0x63
+                gpio_put(LED, 1); // Acende LED
+                last_activity = xTaskGetTickCount();
+            } else if (data == 'd') { // 0x64
+                gpio_put(LED, 0); // Apaga LED
+                last_activity = xTaskGetTickCount();
+            } else if (data == 0xFF) { // Início de pacote de evento
+                // Aguarda os 4 bytes do pacote com timeout total de 100ms
+                bool packet_complete = true;
+                for (int i = 0; i < 4; i++) {
+                    int byte = getchar_timeout_us(25000); // 25ms por byte
+                    if (byte == PICO_ERROR_TIMEOUT) {
+                        packet_complete = false;
+                        break;
+                    }
+                }
+                if (packet_complete) {
+                    last_activity = xTaskGetTickCount();
+                }
+            }
+        }
+
+        // Apaga LED após 1s de inatividade
+        if (xTaskGetTickCount() - last_activity >= timeout_ticks) {
+            gpio_put(LED, 0);
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+}
+
 int main() {
     stdio_init_all();
     adc_init();
     btn_setup();
+    gpio_init(LED);
+    gpio_set_dir(LED, GPIO_OUT);
+    gpio_put(LED, 0); // LED apagado inicialmente
+
     gpio_set_irq_enabled_with_callback(BTN_W, GPIO_IRQ_EDGE_FALL | GPIO_IRQ_EDGE_RISE, true, &btn_callback);
     gpio_set_irq_enabled_with_callback(BTN_A, GPIO_IRQ_EDGE_FALL | GPIO_IRQ_EDGE_RISE, true, &btn_callback);
     gpio_set_irq_enabled_with_callback(BTN_S, GPIO_IRQ_EDGE_FALL | GPIO_IRQ_EDGE_RISE, true, &btn_callback);
@@ -134,6 +181,7 @@ int main() {
     xTaskCreate(joystick_x_task, "JOY_X", 4096, NULL, 1, NULL);
     xTaskCreate(joystick_y_task, "JOY_Y", 4096, NULL, 1, NULL);
     xTaskCreate(uart_task, "UART", 4096, NULL, 2, NULL);
+    xTaskCreate(led_task, "LED", 4096, NULL, 2, NULL);
 
     vTaskStartScheduler();
     while (true);
