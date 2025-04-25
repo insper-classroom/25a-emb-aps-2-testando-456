@@ -120,9 +120,6 @@ void uart_task(void *p) {
 }
 
 void led_task(void *p) {
-    uint32_t last_c_received = xTaskGetTickCount();
-    const TickType_t timeout_ticks = pdMS_TO_TICKS(3000); // 3 segundos sem 'c'
-
     // Limpa buffer UART
     while (uart_is_readable(uart0)) {
         uart_getc(uart0);
@@ -133,15 +130,9 @@ void led_task(void *p) {
         if (data != PICO_ERROR_TIMEOUT) {
             if (data == 'c') { // 0x63
                 gpio_put(LED, 1); // Acende LED
-                last_c_received = xTaskGetTickCount();
             } else if (data == 'd') { // 0x64
                 gpio_put(LED, 0); // Apaga LED
             }
-        }
-
-        // Apaga LED após 3s sem 'c'
-        if (xTaskGetTickCount() - last_c_received >= timeout_ticks) {
-            gpio_put(LED, 0);
         }
 
         vTaskDelay(pdMS_TO_TICKS(10));

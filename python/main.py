@@ -23,7 +23,6 @@ gravando = False
 reproduzindo = False
 macro = []
 inicio_gravacao = 0
-c_ativo = False  # Flag global para envio periódico de 'c'
 
 def atualizar_tecla(tecla, ativo):
     if ativo and not estado[tecla]:
@@ -83,8 +82,8 @@ def controle(ser, status_label, mudar_cor_circulo):
         22: None  # GP22 (macro)
     }
 
-    while True:
-        try:
+    try:
+        while True:
             sync_byte = ser.read(size=1)
             if not sync_byte or sync_byte[0] != 0xFF:
                 continue
@@ -142,11 +141,17 @@ def controle(ser, status_label, mudar_cor_circulo):
                         atualizar_tecla(botoes[gpio], False)
                     del botoes_pressionados[gpio]
 
-        except KeyboardInterrupt:
-            break
-        except Exception as e:
-            print(f"Erro no controle: {e}")
-            break
+    except KeyboardInterrupt:
+        print("Interrompido por Ctrl+C, enviando 'd'")
+        try:
+            if ser.is_open:
+                ser.write(b'd')  # Envia 'd' para apagar LED
+        except:
+            pass
+        raise  # Re-levanta para propagar o Ctrl+C
+    except Exception as e:
+        print(f"Erro no controle: {e}")
+        raise
 
 def serial_ports():
     ports = []
@@ -176,25 +181,7 @@ def serial_ports():
             pass
     return result
 
-def enviar_c_periodico(ser, root):
-    global c_ativo
-    if not c_ativo:
-        return
-    try:
-        if ser.is_open:
-            ser.write(b'c')  # Envia 'c' para manter LED aceso
-            print("Enviado 'c'")  # Log para depuração
-        else:
-            c_ativo = False
-            return
-    except Exception as e:
-        print(f"Erro ao enviar 'c': {e}")
-        c_ativo = False
-        return
-    root.after(1000, lambda: enviar_c_periodico(ser, root))  # Agenda próximo envio em 1s
-
 def conectar_porta(port_name, root, botao_conectar, status_label, mudar_cor_circulo):
-    global c_ativo
     if not port_name:
         messagebox.showwarning("Aviso", "Selecione uma porta serial antes de conectar.")
         return
@@ -202,9 +189,6 @@ def conectar_porta(port_name, root, botao_conectar, status_label, mudar_cor_circ
     try:
         ser = serial.Serial(port_name, 115200, timeout=1)
         ser.write(b'c')  # Envia 'c' inicial para acender LED
-        print("Enviado 'c' inicial")  # Log para depuração
-        c_ativo = True  # Ativa envio periódico
-        root.after(1000, lambda: enviar_c_periodico(ser, root))  # Inicia envio periódico
         status_label.config(text=f"Conectado em {port_name}")
         mudar_cor_circulo("green")
         botao_conectar.config(text="Conectado")
@@ -214,11 +198,9 @@ def conectar_porta(port_name, root, botao_conectar, status_label, mudar_cor_circ
         messagebox.showerror("Erro", f"Não foi possível conectar em {port_name}.\nErro: {e}")
         mudar_cor_circulo("red")
     finally:
-        c_ativo = False  # Para envio periódico
         try:
             if ser.is_open:
                 ser.write(b'd')  # Envia 'd' para apagar LED
-                print("Enviado 'd'")  # Log para depuração
         except:
             pass
         ser.close()
@@ -288,7 +270,11 @@ def criar_janela():
     def mudar_cor_circulo(cor):
         circle_canvas.itemconfig(circle_item, fill=cor)
 
-    root.mainloop()
+    try:
+        root.mainloop()
+    except KeyboardInterrupt:
+        print("Programa interrompido por Ctrl+C")
+        # 'd' já será enviado pelo finally em conectar_porta
 
 if __name__ == "__main__":
     criar_janela()
