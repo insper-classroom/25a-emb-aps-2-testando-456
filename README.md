@@ -1,17 +1,19 @@
-Controle Imersivo para TES V - Skyrim
+Controle Imersivo para  Realizar um Labirinto  - Minecraft
 
-Nesse projeto, um controle para o RPG famoso Skyrim sera feito, contando com 4 botoes e 2 analogicos.
+Nesse projeto, um controle para o Minecraft, contando com 4 botoes para andar ,  2 analogicos 
+para o campo de visão e o um botão de macro, para gravar movimentos. 
 
 Cada botao tera uma funcionalidade diferente, sendo essas:
-* Usar item da mao direita
-* Usar item da mao esquerda
-* Usar um poder do personagem
-* Abrir o menu do jogo
+* Andar para Frente
+* Andar para Esquerda
+* Andar para Direita
+* Andar para trás
+* Gravar informações repetidas (macro)
 
-E os joysticks servirao para o movimento da camera e do personagem.
+E os joysticks servirao para o movimento da camera do personagem.
 
 Segue abaixo o diagrama do codigo e uma representacao do controle:
 
-![Diagrama](imgs/diagrama.png)
+![Diagrama](imgs/Diagrama_APS2.png)
 
 ![Desenho do Controle](imgs/desenho_controle.png)
